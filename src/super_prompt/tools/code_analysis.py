@@ -1,0 +1,1 @@
+"✅ ARQUIVO NÃO EXISTE: '{filepath}'\n\n➡️ AÇÃO RECOMENDADA: **CRIAR ARQUIVO NOVO**\n\nUse: write_file('{filepath}', conteudo)"

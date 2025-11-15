@@ -22,8 +22,7 @@ from rich.syntax import Syntax
 
 from .code_agent import CodeAgent
 from .config import AgentConfig
-from .tools import ToolManager
-from .tool_decorator import TOOL_REGISTRY, TOOL_SCHEMAS, TOOL_COMPLEXITY
+from . import tools
 
 class ModernAIAgent:
     """
@@ -57,8 +56,7 @@ class ModernAIAgent:
         self.client = OpenAI(api_key=api_key)
         self.code_agent = CodeAgent(str(self.workspace))
         
-        # Instancia o ToolManager e registra as ferramentas
-        self.tool_manager = ToolManager(self.workspace, self.code_agent)
+        # Registra as ferramentas a partir do novo pacote de ferramentas
         self._register_tools()
         
         # Memória e estado
@@ -103,10 +101,12 @@ class ModernAIAgent:
             self.complex_model = self.config.complex_model
 
     def _register_tools(self):
-        """Registra as ferramentas a partir do ToolManager e dos decoradores."""
-        self.tools_registry = {name: getattr(self.tool_manager, name) for name in TOOL_REGISTRY}
-        self.tools_schema = TOOL_SCHEMAS
-        self.tool_complexity = TOOL_COMPLEXITY
+        """Registra as ferramentas a partir do pacote de ferramentas."""
+        # O __init__.py do pacote de ferramentas já importa e registra tudo.
+        # Aqui, nós pegamos as ferramentas prontas com as dependências já injetadas.
+        self.tools_registry = tools.get_all_tools(self.code_agent, self.workspace)
+        self.tools_schema = tools.TOOL_SCHEMAS
+        self.tool_complexity = tools.TOOL_COMPLEXITY
 
     def _display_initialization_message(self):
         """Mostra a mensagem de inicialização com base na configuração."""

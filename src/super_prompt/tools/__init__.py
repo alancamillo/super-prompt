@@ -1,0 +1,47 @@
+"""
+Tool Aggregator for the Modern AI Agent.
+
+This module imports all tool functions from the segmented files and provides a
+function to get a dictionary of ready-to-use tools with their dependencies (like code_agent)
+already bound.
+"""
+import functools
+from pathlib import Path
+from typing import Dict, Callable, Any
+
+from ..code_agent import CodeAgent
+
+# Import all tool functions from the segmented files.
+# The act of importing executes the @tool decorators, populating the global registries.
+from .file_system import *
+from .code_editing import *
+from .shell import *
+from .code_analysis import *
+
+# Import the global registries from the decorator module
+from .tool_decorator import TOOL_REGISTRY, TOOL_SCHEMAS, TOOL_COMPLEXITY
+
+def get_all_tools(code_agent: CodeAgent, workspace: Path) -> Dict[str, Callable[..., Any]]:
+    """
+    Initializes and returns a dictionary of all registered tools.
+
+    This function binds the necessary context (code_agent, workspace) to each
+    tool function that requires it.
+
+    Args:
+        code_agent: An instance of the CodeAgent for file manipulation.
+        workspace: The Path object representing the agent's workspace.
+
+    Returns:
+        A dictionary mapping tool names to their callable functions.
+    """
+    
+    # Create a new dictionary to hold the bound tools
+    bound_tools: Dict[str, Callable[..., Any]] = {}
+
+    for name, func in TOOL_REGISTRY.items():
+        # Create a partial function, binding the code_agent and workspace arguments
+        # This makes the tools directly callable by the agent with only their specific args
+        bound_tools[name] = functools.partial(func, code_agent=code_agent, workspace=workspace)
+        
+    return bound_tools
