@@ -1,12 +1,14 @@
-from modern_ai_agent import ModernAIAgent
+from src.super_prompt.modern_ai_agent import ModernAIAgent
+from src.super_prompt.config import AgentConfig
 
-# Inicializa com logging
-agent = ModernAIAgent(
-    simple_model="gpt-5-nano",
-    complex_model="gpt-5",
+# Configure and initialize the agent using the AgentConfig model
+config = AgentConfig(
+    simple_model="gpt-4o-mini",
+    complex_model="gpt-4o",
     use_multi_model=True,
-    log_file="logs/agent_session.log"  # 🆕 Logging completo
+    log_file="logs/agent_session.log"
 )
+agent = ModernAIAgent(config=config)
 
 # Uso simples - o agente decide o que fazer
 # agent.execute_task("""crie uma aplicaçao simples usando fastapi de nome main2.py. Que tenham os seguintes metodos: 
