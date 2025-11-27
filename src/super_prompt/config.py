@@ -1,9 +1,13 @@
 """
 Configuration for the Modern AI Agent using Pydantic.
+
+Supports configuration via:
+- Python code (AgentConfig class)
+- YAML file (config.yaml) - automatically loaded if present
 """
 from typing import Optional, List, Dict, Union
 from pydantic import BaseModel, Field, field_validator, model_validator
-from .model_config import ModelConfig, ModelProviderConfig
+from .model_config import ModelConfig, ModelProviderConfig, try_load_config_from_yaml
 
 class AgentConfig(BaseModel):
     """
@@ -33,6 +37,12 @@ class AgentConfig(BaseModel):
         )
     """
     workspace: str = Field(default=".", description="The working directory for the agent.")
+    
+    # YAML configuration file
+    config_file: Optional[str] = Field(
+        default=None, 
+        description="Path to YAML config file. If set, loads model configuration from this file."
+    )
     
     # Legacy configuration (mantido para compatibilidade)
     model: Optional[str] = Field(default=None, description="[LEGACY] Fixed model to use. Overrides multi-model settings. Use model_provider_config for new flexible system.")
@@ -91,13 +101,49 @@ class AgentConfig(BaseModel):
     
     @model_validator(mode='after')
     def setup_model_config(self):
-        """Configura model_provider_config a partir de configuração legacy se necessário."""
-        # Se model_provider_config não foi fornecido, cria a partir de configuração legacy
-        if self.model_provider_config is None:
-            # Usa valores padrão se não especificados
+        """
+        Configura model_provider_config com a seguinte prioridade:
+        1. model_provider_config (se fornecido diretamente)
+        2. model (configuração legacy de modelo único)
+        3. simple_model/complex_model (configuração legacy multi-modelo)
+        4. config_file YAML (se especificado)
+        5. config.yaml no diretório atual (se existir e NENHUMA config de modelo foi fornecida)
+        6. Valores padrão (gpt-4o-mini, gpt-4o)
+        """
+        # Verifica se alguma configuração de modelo foi fornecida explicitamente
+        has_model_config = (
+            self.model_provider_config is not None or
+            self.model is not None or
+            self.simple_model is not None or
+            self.complex_model is not None
+        )
+        
+        # Se model_provider_config já foi fornecido, usa ele
+        if self.model_provider_config is not None:
+            pass  # Já tem config, não faz nada
+        
+        # Se model (único) foi fornecido, cria config a partir dele
+        elif self.model is not None:
+            self.model_provider_config = ModelProviderConfig(
+                simple=ModelConfig(
+                    name=self.model,
+                    api_base=self.api_base,
+                    api_key=self.api_key
+                ),
+                complex=ModelConfig(
+                    name=self.model,
+                    api_base=self.api_base,
+                    api_key=self.api_key
+                )
+            )
+            self.use_multi_model = False
+            self.simple_model = self.model
+            self.complex_model = self.model
+        
+        # Se simple_model ou complex_model foram fornecidos, usa eles
+        elif self.simple_model is not None or self.complex_model is not None:
             simple_name = self.simple_model or "gpt-4o-mini"
             complex_name = self.complex_model or "gpt-4o"
-            
             self.model_provider_config = ModelProviderConfig(
                 simple=ModelConfig(
                     name=simple_name,
@@ -110,29 +156,41 @@ class AgentConfig(BaseModel):
                     api_key=self.api_key
                 )
             )
-        else:
-            # Se model_provider_config foi fornecido, atualiza simple_model e complex_model
-            # para compatibilidade com código legacy
-            if not self.simple_model:
-                self.simple_model = self.model_provider_config.simple.name
-            if not self.complex_model:
-                self.complex_model = self.model_provider_config.complex.name
         
-        # Se model está definido, sobrescreve tudo (compatibilidade legacy)
-        if self.model:
-            self.model_provider_config.simple = ModelConfig(
-                name=self.model,
-                api_base=self.api_base,
-                api_key=self.api_key
+        # Se config_file foi especificado, carrega dele
+        elif self.config_file is not None:
+            yaml_config = try_load_config_from_yaml(self.config_file)
+            if yaml_config:
+                self.model_provider_config = yaml_config
+                self.use_multi_model = True
+        
+        # NENHUMA configuração foi fornecida - tenta carregar do config.yaml padrão
+        elif not has_model_config:
+            yaml_config = try_load_config_from_yaml("config.yaml")
+            if yaml_config:
+                self.model_provider_config = yaml_config
+                self.use_multi_model = True
+        
+        # Fallback: usa valores padrão se ainda não tem config
+        if self.model_provider_config is None:
+            self.model_provider_config = ModelProviderConfig(
+                simple=ModelConfig(
+                    name="gpt-4o-mini",
+                    api_base=self.api_base,
+                    api_key=self.api_key
+                ),
+                complex=ModelConfig(
+                    name="gpt-4o",
+                    api_base=self.api_base,
+                    api_key=self.api_key
+                )
             )
-            self.model_provider_config.complex = ModelConfig(
-                name=self.model,
-                api_base=self.api_base,
-                api_key=self.api_key
-            )
-            self.use_multi_model = False
-            self.simple_model = self.model
-            self.complex_model = self.model
+        
+        # Atualiza simple_model e complex_model para compatibilidade com código legacy
+        if not self.simple_model:
+            self.simple_model = self.model_provider_config.simple.name
+        if not self.complex_model:
+            self.complex_model = self.model_provider_config.complex.name
         
         return self
 

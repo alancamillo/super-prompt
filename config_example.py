@@ -4,11 +4,14 @@ Exemplos de configuração flexível do Modern AI Agent.
 
 Este arquivo demonstra como configurar modelos de diferentes providers
 (LM Studio local e OpenAI comercial) com configuração por nível e por tool.
+
+NOVO: Agora também suporta configuração via arquivo YAML!
+Veja config.yaml para exemplo de configuração.
 """
 
 from src.super_prompt.modern_ai_agent import ModernAIAgent
 from src.super_prompt.config import AgentConfig
-from src.super_prompt.model_config import ModelConfig, ModelProviderConfig
+from src.super_prompt.model_config import ModelConfig, ModelProviderConfig, load_config_from_yaml
 
 # ============================================================================
 # EXEMPLO 1: LM Studio (local) para simple + OpenAI (comercial) para complex
@@ -125,12 +128,38 @@ config5 = AgentConfig(
 )
 
 # ============================================================================
+# EXEMPLO 6: Carrega configuração do arquivo YAML (NOVO!)
+# ============================================================================
+
+# Opção A: Carrega automaticamente de config.yaml (se existir)
+config6a = AgentConfig()  # Detecta e carrega config.yaml automaticamente
+
+# Opção B: Especifica o arquivo YAML explicitamente
+config6b = AgentConfig(
+    config_file="config.yaml",  # Caminho para o arquivo YAML
+    log_file="logs/agent_session.log",
+    max_iterations=30
+)
+
+# Opção C: Carrega YAML manualmente para mais controle
+yaml_provider_config = load_config_from_yaml("config.yaml")
+config6c = AgentConfig(
+    model_provider_config=yaml_provider_config,
+    use_multi_model=True,
+    log_file="logs/agent_session.log",
+    max_iterations=30
+)
+
+# ============================================================================
 # USO
 # ============================================================================
 
 if __name__ == "__main__":
     # Escolha uma das configurações acima
-    agent = ModernAIAgent(config=config1)
+    # config1-5: Configuração via código Python
+    # config6a/b/c: Configuração via arquivo YAML (recomendado!)
+    
+    agent = ModernAIAgent(config=config6a)  # Usa config.yaml automaticamente
     
     # Execute uma tarefa
     result = agent.execute_task("Liste os arquivos Python no diretório atual")

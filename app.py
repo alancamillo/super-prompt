@@ -72,6 +72,12 @@ from src.super_prompt.model_config import ModelConfig, ModelProviderConfig
 #     max_iterations=30
 # )
 
+config_simple = AgentConfig(
+    use_multi_model=True,
+    log_file="logs/agent_session.log",
+    max_iterations=30
+)
+
 # ============================================================================
 # EXEMPLO: Configuração Flexível - LM Studio (local) + OpenAI (comercial)
 # ============================================================================
@@ -211,7 +217,8 @@ config = AgentConfig(
 #   agent.execute_task(task, skip_validation=True) # Pula validação
 # ============================================================================
 
-agent = ModernAIAgent(config=config)
+# agent = ModernAIAgent(config=config)
+agent = ModernAIAgent(config=config_simple)
 
 # Uso simples - o agente decide o que fazer
 # agent.execute_task("""crie uma aplicaçao simples usando fastapi de nome main2.py. Que tenham os seguintes metodos: 

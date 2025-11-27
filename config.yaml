@@ -1,0 +1,101 @@
+# =============================================================================
+# Configuração de Modelos - Super Prompt Agent
+# =============================================================================
+# Este arquivo permite configurar quais modelos LLM usar para diferentes
+# níveis de complexidade de tarefas e ferramentas específicas.
+#
+# Providers suportados via LiteLLM:
+#   - OpenAI (gpt-4o, gpt-4o-mini, etc.)
+#   - LM Studio local (qwen, llama, etc.)
+#   - Ollama (ollama/llama3, ollama/mistral, etc.)
+#   - Anthropic (claude-3-opus, claude-3-sonnet, etc.)
+#   - E 100+ outros providers
+# =============================================================================
+
+# Configuração do modelo para tarefas SIMPLES
+# (leitura de arquivos, listagem, buscas rápidas)
+simple:
+  name: "qwen/qwen3-coder-30b"
+  api_base: "http://spark-0852.local:1234/v1"   # LM Studio local
+  api_key: null           # null = usa OPENAI_API_KEY do .env
+
+# Configuração do modelo para tarefas COMPLEXAS
+# (análise de código, refatoração, geração de código)
+complex:
+  name: "gpt-5.1"
+  api_base: null
+  api_key: null
+
+# Overrides por ferramenta específica (opcional)
+# Sobrescreve a configuração de complexidade para ferramentas específicas
+tool_overrides: {}
+  # Exemplo: forçar GPT-4o para edição de código
+  # edit_lines:
+  #   name: "gpt-4o"
+  #   api_base: null
+  #   api_key: null
+
+# =============================================================================
+# EXEMPLOS DE CONFIGURAÇÕES ALTERNATIVAS
+# =============================================================================
+#
+# --- Exemplo 1: LM Studio (local) para simple + OpenAI para complex ---
+#
+# simple:
+#   name: "qwen/qwen3-coder-30b"
+#   api_base: "http://localhost:1234/v1"   # LM Studio local
+#   api_key: ""                             # Não precisa de key
+#
+# complex:
+#   name: "gpt-4o"
+#   api_base: null
+#   api_key: null
+#
+# --- Exemplo 2: Tudo local com LM Studio ---
+#
+# simple:
+#   name: "qwen/qwen3-coder-30b"
+#   api_base: "http://localhost:1234/v1"
+#   api_key: ""
+#
+# complex:
+#   name: "glm-4.6@iq1_m"
+#   api_base: "http://localhost:1234/v1"
+#   api_key: ""
+#
+# --- Exemplo 3: Ollama local ---
+#
+# simple:
+#   name: "ollama/llama3"
+#   api_base: "http://localhost:11434"
+#   api_key: ""
+#
+# complex:
+#   name: "ollama/codellama:34b"
+#   api_base: "http://localhost:11434"
+#   api_key: ""
+#
+# --- Exemplo 4: Com overrides por tool ---
+#
+# simple:
+#   name: "qwen/qwen3-coder-30b"
+#   api_base: "http://localhost:1234/v1"
+#   api_key: ""
+#
+# complex:
+#   name: "gpt-4o"
+#   api_base: null
+#   api_key: null
+#
+# tool_overrides:
+#   edit_lines:
+#     name: "gpt-4o"        # Sempre usa GPT-4o para edições
+#     api_base: null
+#     api_key: null
+#   search_replace:
+#     name: "gpt-4o-mini"   # Usa modelo mais rápido para search/replace
+#     api_base: null
+#     api_key: null
+#
+# =============================================================================
+
