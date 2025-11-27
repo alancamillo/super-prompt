@@ -2,13 +2,29 @@
 Git version control tools for the Modern AI Agent.
 
 Provides checkpoint, rollback, stash, and branch management for safe code editing.
+Uses Rich library for beautiful terminal output.
 """
 import subprocess
 import os
+from io import StringIO
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from .tool_decorator import tool
+
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.text import Text
+from rich import box
+
+
+def _render_to_string(renderable) -> str:
+    """Renderiza um objeto Rich para string, capturando a saída."""
+    string_io = StringIO()
+    console = Console(file=string_io, force_terminal=True, width=80)
+    console.print(renderable)
+    return string_io.getvalue()
 
 # ============================================================================
 # UTILITY FUNCTIONS (Not exposed as tools)
@@ -602,7 +618,7 @@ Exibe:
     complexity="simple"
 )
 def git_status(workspace: Path) -> str:
-    """Mostra status do repositório."""
+    """Mostra status do repositório usando Rich para formatação."""
     
     if not _is_git_repo(workspace):
         return "❌ Workspace não é um repositório Git. Use git_init() para inicializar."
@@ -613,14 +629,14 @@ def git_status(workspace: Path) -> str:
     success, status, _ = _run_git("status --porcelain", workspace)
     
     if not status:
-        return (
-            f"✅ Working directory está limpo!\n\n"
-            f"📍 Branch: {branch}\n"
-            f"📝 Nenhuma mudança pendente"
+        panel = Panel(
+            f"📍 Branch: [green]{branch}[/green]\n📝 Nenhuma mudança pendente",
+            title="✅ Working directory limpo",
+            border_style="green"
         )
+        return _render_to_string(panel)
     
     lines = status.splitlines()
-    formatted_files = [_format_file_status(line) for line in lines]
     
     # Conta tipos de mudanças
     staged = sum(1 for l in lines if l[0] != ' ' and l[0] != '?')
@@ -628,20 +644,62 @@ def git_status(workspace: Path) -> str:
     untracked = sum(1 for l in lines if l.startswith('??'))
     deleted = sum(1 for l in lines if 'D' in l[:2])
     
+    # Tabela de resumo
+    summary_table = Table(
+        title=f"📊 Status do Repositório",
+        box=box.ROUNDED,
+        show_header=False,
+        border_style="cyan"
+    )
+    summary_table.add_column("Info", style="bold")
+    summary_table.add_column("Valor")
+    summary_table.add_row("📍 Branch", f"[green]{branch}[/green]")
+    summary_table.add_row("✏️  Modificados", f"[yellow]{modified}[/yellow]")
+    summary_table.add_row("🆕 Não rastreados", f"[red]{untracked}[/red]")
+    summary_table.add_row("🗑️  Deletados", f"[red]{deleted}[/red]")
+    summary_table.add_row("📦 Staged", f"[green]{staged}[/green]")
+    
+    # Tabela de arquivos
+    files_table = Table(
+        title="📂 Arquivos",
+        box=box.SIMPLE,
+        show_header=True,
+        header_style="bold"
+    )
+    files_table.add_column("Status", width=22)
+    files_table.add_column("Arquivo")
+    
+    for line in lines[:15]:
+        status_code = line[:2]
+        filename = line[3:]
+        
+        if status_code == '??':
+            files_table.add_row("[red]❓ não rastreado[/red]", filename)
+        elif 'M' in status_code:
+            staged_marker = "(staged)" if status_code[0] == 'M' else ""
+            files_table.add_row(f"[yellow]✏️  modificado {staged_marker}[/yellow]", filename)
+        elif 'D' in status_code:
+            files_table.add_row("[red]🗑️  deletado[/red]", filename)
+        elif 'A' in status_code:
+            files_table.add_row("[green]🆕 novo (staged)[/green]", filename)
+        else:
+            files_table.add_row(f"[dim]{status_code}[/dim]", filename)
+    
+    if len(lines) > 15:
+        files_table.add_row("...", f"[dim]e mais {len(lines) - 15} arquivos[/dim]")
+    
+    # Dicas
+    tips = Panel(
+        "[cyan]git_checkpoint('mensagem')[/cyan] - Salvar estado atual\n"
+        "[cyan]git_rollback('HEAD')[/cyan] - Desfazer mudanças",
+        title="💡 Próximos passos",
+        border_style="blue"
+    )
+    
     return (
-        f"📊 Status do Repositório\n"
-        f"{'=' * 40}\n\n"
-        f"📍 Branch: {branch}\n\n"
-        f"📈 Resumo:\n"
-        f"  ✏️  Modificados: {modified}\n"
-        f"  🆕 Não rastreados: {untracked}\n"
-        f"  🗑️  Deletados: {deleted}\n"
-        f"  📦 Staged: {staged}\n\n"
-        f"📂 Arquivos:\n" +
-        "\n".join(formatted_files) +
-        f"\n\n💡 Próximos passos:\n"
-        f"  - git_checkpoint('mensagem') - Salvar estado atual\n"
-        f"  - git_rollback('HEAD') - Desfazer mudanças"
+        _render_to_string(summary_table) +
+        _render_to_string(files_table) +
+        _render_to_string(tips)
     )
 
 
@@ -668,7 +726,7 @@ def git_status(workspace: Path) -> str:
     complexity="simple"
 )
 def git_history(workspace: Path, limit: int = 10, oneline: bool = True) -> str:
-    """Mostra histórico de commits."""
+    """Mostra histórico de commits usando Rich para formatação."""
     
     if not _is_git_repo(workspace):
         return "❌ Workspace não é um repositório Git."
@@ -684,23 +742,48 @@ def git_history(workspace: Path, limit: int = 10, oneline: bool = True) -> str:
         return "📜 Nenhum commit no histórico."
     
     lines = log.splitlines()
-    formatted = []
-    for i, line in enumerate(lines):
-        # Identifica checkpoints
-        if "[CHECKPOINT]" in line:
-            formatted.append(f"  🔖 {line}")
-        elif "🎉" in line or "inicial" in line.lower():
-            formatted.append(f"  🎉 {line}")
-        else:
-            formatted.append(f"  📝 {line}")
     
-    return (
-        f"📜 Histórico de Commits (últimos {limit})\n"
-        f"{'=' * 40}\n\n" +
-        "\n".join(formatted) +
-        f"\n\n💡 Para rollback: git_rollback('HASH')\n"
-        f"💡 Para ver mais: git_history(limit=20)"
+    # Cria tabela de histórico
+    history_table = Table(
+        title=f"📜 Histórico de Commits (últimos {limit})",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+        border_style="cyan"
     )
+    history_table.add_column("Hash", style="cyan", width=8)
+    history_table.add_column("Tipo", width=4)
+    history_table.add_column("Mensagem")
+    
+    for line in lines:
+        parts = line.split(" ", 1)
+        hash_val = parts[0]
+        msg = parts[1] if len(parts) > 1 else ""
+        
+        # Identifica tipo
+        if "[CHECKPOINT]" in msg:
+            icon = "🔖"
+            style = "yellow"
+        elif "🎉" in msg or "inicial" in msg.lower():
+            icon = "🎉"
+            style = "green"
+        else:
+            icon = "📝"
+            style = "white"
+        
+        # Trunca mensagem se muito longa
+        msg_display = msg[:55] + "..." if len(msg) > 55 else msg
+        history_table.add_row(hash_val, icon, f"[{style}]{msg_display}[/{style}]")
+    
+    # Dicas
+    tips = Panel(
+        "[cyan]git_rollback('HASH')[/cyan] - Reverter para commit\n"
+        f"[cyan]git_history(limit={limit + 10})[/cyan] - Ver mais commits",
+        title="💡 Dicas",
+        border_style="blue"
+    )
+    
+    return _render_to_string(history_table) + _render_to_string(tips)
 
 
 # ============================================================================
@@ -727,13 +810,15 @@ Esta é a ferramenta de "revisão final" que mostra tudo em um painel visual."""
     complexity="simple"
 )
 def git_review(workspace: Path, session_commits: int = 5) -> str:
-    """Dashboard de revisão final."""
+    """Dashboard de revisão final usando Rich para formatação."""
     
     if not _is_git_repo(workspace):
-        return (
-            "❌ Workspace não é um repositório Git.\n\n"
-            "💡 Use git_init() para inicializar o versionamento."
+        panel = Panel(
+            "💡 Use [cyan]git_init()[/cyan] para inicializar o versionamento.",
+            title="❌ Workspace não é um repositório Git",
+            border_style="red"
         )
+        return _render_to_string(panel)
     
     # Coleta informações
     branch = _get_current_branch(workspace)
@@ -741,9 +826,6 @@ def git_review(workspace: Path, session_commits: int = 5) -> str:
     # Status atual
     _, status_output, _ = _run_git("status --porcelain", workspace)
     status_lines = status_output.splitlines() if status_output else []
-    
-    # Diff stat
-    _, diff_stat, _ = _run_git("diff --stat", workspace)
     
     # Histórico recente
     _, history, _ = _run_git(f"log --oneline -n {session_commits}", workspace)
@@ -756,104 +838,151 @@ def git_review(workspace: Path, session_commits: int = 5) -> str:
     # Primeiro commit da sessão (para referência de rollback total)
     first_commit_hash = history_lines[-1].split()[0] if history_lines else "HEAD"
     
-    # Monta o dashboard
-    separator = "═" * 60
-    section_sep = "─" * 60
+    # =========================================================================
+    # TABELA: Status Geral
+    # =========================================================================
+    status_table = Table(
+        title=f"📊 GIT REVIEW - {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        box=box.ROUNDED,
+        show_header=False,
+        title_style="bold cyan",
+        border_style="cyan"
+    )
+    status_table.add_column("Info", style="bold")
+    status_table.add_column("Valor")
+    status_table.add_row("📍 Branch", f"[green]{branch}[/green]")
+    status_table.add_row("📁 Arquivos modificados", f"[yellow]{len(status_lines)}[/yellow]")
+    status_table.add_row("🔖 Checkpoints recentes", f"[blue]{len(history_lines)}[/blue]")
+    status_table.add_row("💾 Stashes salvos", f"[magenta]{len(stash_lines)}[/magenta]")
     
-    # Seção: Header
-    output = f"""
-╔{separator}╗
-║  📊 GIT REVIEW - Dashboard de Revisão                        ║
-║  📅 {datetime.now().strftime("%Y-%m-%d %H:%M")}                                           ║
-╠{separator}╣
-"""
+    # =========================================================================
+    # TABELA: Arquivos Modificados
+    # =========================================================================
+    files_table = Table(
+        title="📁 Arquivos Modificados",
+        box=box.SIMPLE,
+        show_header=True,
+        header_style="bold yellow"
+    )
+    files_table.add_column("Status", width=20)
+    files_table.add_column("Arquivo", style="white")
     
-    # Seção: Status Geral
-    output += f"""║  📍 BRANCH ATUAL: {branch:<41} ║
-╠{separator}╣
-"""
-    
-    # Seção: Arquivos Modificados
     if status_lines:
-        output += f"║  📁 ARQUIVOS MODIFICADOS ({len(status_lines)}):                           ║\n"
         for line in status_lines[:10]:
             formatted = _format_file_status(line)
-            output += f"║  {formatted:<56} ║\n"
+            # Parse formatted string
+            if "modificado" in formatted:
+                files_table.add_row("[yellow]✏️  modificado[/yellow]", line[3:])
+            elif "não rastreado" in formatted:
+                files_table.add_row("[red]❓ não rastreado[/red]", line[3:])
+            elif "deletado" in formatted:
+                files_table.add_row("[red]🗑️  deletado[/red]", line[3:])
+            elif "novo" in formatted:
+                files_table.add_row("[green]🆕 novo[/green]", line[3:])
+            else:
+                files_table.add_row(line[:2], line[3:])
         if len(status_lines) > 10:
-            output += f"║  ... e mais {len(status_lines) - 10} arquivos                              ║\n"
+            files_table.add_row("...", f"[dim]e mais {len(status_lines) - 10} arquivos[/dim]")
     else:
-        output += f"║  ✅ Nenhuma mudança pendente (working directory limpo)     ║\n"
+        files_table.add_row("[green]✅[/green]", "[green]Working directory limpo[/green]")
     
-    output += f"╠{section_sep}╣\n"
+    # =========================================================================
+    # TABELA: Histórico de Checkpoints
+    # =========================================================================
+    history_table = Table(
+        title="🔖 Checkpoints Recentes",
+        box=box.SIMPLE,
+        show_header=True,
+        header_style="bold blue"
+    )
+    history_table.add_column("Hash", style="cyan", width=8)
+    history_table.add_column("Mensagem")
     
-    # Seção: Checkpoints da Sessão
-    output += f"║  🔖 CHECKPOINTS RECENTES ({len(history_lines)}):                            ║\n"
     if history_lines:
         for line in history_lines:
-            # Trunca se muito longo
-            display = line[:52] + "..." if len(line) > 55 else line
-            icon = "🔖" if "[CHECKPOINT]" in line else "📝"
-            output += f"║    {icon} {display:<53} ║\n"
+            parts = line.split(" ", 1)
+            hash_val = parts[0]
+            msg = parts[1] if len(parts) > 1 else ""
+            icon = "🔖" if "[CHECKPOINT]" in msg else "📝"
+            # Trunca mensagem se muito longa
+            msg_display = msg[:50] + "..." if len(msg) > 50 else msg
+            history_table.add_row(f"[cyan]{hash_val}[/cyan]", f"{icon} {msg_display}")
     else:
-        output += f"║    (nenhum commit encontrado)                            ║\n"
+        history_table.add_row("-", "[dim]Nenhum commit encontrado[/dim]")
     
-    output += f"╠{section_sep}╣\n"
-    
-    # Seção: Stashes
+    # =========================================================================
+    # TABELA: Stashes (se houver)
+    # =========================================================================
+    stash_table = None
     if stash_lines:
-        output += f"║  💾 STASHES SALVOS ({len(stash_lines)}):                                  ║\n"
-        for line in stash_lines[:3]:
-            display = line[:52] + "..." if len(line) > 55 else line
-            output += f"║    💾 {display:<53} ║\n"
+        stash_table = Table(
+            title="💾 Stashes Salvos",
+            box=box.SIMPLE,
+            show_header=True,
+            header_style="bold magenta"
+        )
+        stash_table.add_column("Ref", style="magenta", width=12)
+        stash_table.add_column("Descrição")
+        
+        for line in stash_lines[:5]:
+            parts = line.split(": ", 1)
+            ref = parts[0] if parts else line
+            desc = parts[1] if len(parts) > 1 else ""
+            stash_table.add_row(ref, desc[:50])
     
-    output += f"╠{section_sep}╣\n"
-    
-    # Seção: Comandos de Ação
-    output += f"""║  🔧 COMANDOS DISPONÍVEIS:                                    ║
-╠{section_sep}╣
-"""
+    # =========================================================================
+    # TABELA: Comandos Disponíveis
+    # =========================================================================
+    cmd_table = Table(
+        title="🔧 Comandos Disponíveis",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold green",
+        border_style="green"
+    )
+    cmd_table.add_column("Ação", style="bold", width=25)
+    cmd_table.add_column("Comando")
     
     if status_lines:
-        output += f"""║  📦 SALVAR MUDANÇAS:                                         ║
-║    git_checkpoint("descrição das mudanças")                ║
-║                                                             ║
-║  ⏪ DESCARTAR MUDANÇAS LOCAIS:                               ║
-║    git_rollback("HEAD", hard=True)                         ║
-║                                                             ║
-"""
+        cmd_table.add_row("📦 Salvar mudanças", '[cyan]git_checkpoint("mensagem")[/cyan]')
+        cmd_table.add_row("⏪ Descartar mudanças", '[yellow]git_rollback("HEAD", hard=True)[/yellow]')
     
     if history_lines and len(history_lines) > 1:
-        output += f"""║  ⏪ ROLLBACK PARA INÍCIO DA SESSÃO:                           ║
-║    git_rollback("{first_commit_hash}~1")                             ║
-║                                                             ║
-"""
+        cmd_table.add_row("⏪ Rollback p/ início", f'[yellow]git_rollback("{first_commit_hash}~1")[/yellow]')
     
-    output += f"""║  💾 GUARDAR PARA DEPOIS:                                     ║
-║    git_stash_save("trabalho em andamento")                 ║
-║                                                             ║
-║  🌿 CRIAR BRANCH DE BACKUP:                                  ║
-║    git_branch_create("backup-{datetime.now().strftime('%Y%m%d')}")                      ║
-╠{section_sep}╣
-"""
+    cmd_table.add_row("💾 Guardar para depois", '[cyan]git_stash_save("nome")[/cyan]')
+    cmd_table.add_row("🌿 Criar branch backup", f'[cyan]git_branch_create("backup-{datetime.now().strftime("%Y%m%d")}")[/cyan]')
     
-    # Seção: Comandos Git Nativos (para copiar)
-    output += f"""║  📋 COMANDOS GIT NATIVOS (copiar/colar):                     ║
-╠{section_sep}╣
-║  # Commit definitivo                                        ║
-║  git add -A && git commit -m "feat: descrição"             ║
-║                                                             ║
-║  # Rollback total para início da sessão                     ║
-║  git reset --hard {first_commit_hash}~1                              ║
-║                                                             ║
-║  # Ver diferenças detalhadas                                ║
-║  git diff                                                   ║
-║                                                             ║
-║  # Criar branch de backup                                   ║
-║  git branch backup-session-{datetime.now().strftime('%Y%m%d')}                        ║
-╚{separator}╝
-"""
+    # =========================================================================
+    # TABELA: Comandos Git Nativos
+    # =========================================================================
+    native_table = Table(
+        title="📋 Comandos Git Nativos (copiar/colar)",
+        box=box.SIMPLE,
+        show_header=True,
+        header_style="bold white"
+    )
+    native_table.add_column("Descrição", style="dim", width=30)
+    native_table.add_column("Comando", style="white")
     
-    return output
+    native_table.add_row("Commit definitivo", 'git add -A && git commit -m "feat: msg"')
+    native_table.add_row("Rollback total", f'git reset --hard {first_commit_hash}~1')
+    native_table.add_row("Ver diferenças", 'git diff')
+    native_table.add_row("Criar branch backup", f'git branch backup-{datetime.now().strftime("%Y%m%d")}')
+    
+    # =========================================================================
+    # RENDERIZA TUDO
+    # =========================================================================
+    output_parts = []
+    output_parts.append(_render_to_string(status_table))
+    output_parts.append(_render_to_string(files_table))
+    output_parts.append(_render_to_string(history_table))
+    if stash_table:
+        output_parts.append(_render_to_string(stash_table))
+    output_parts.append(_render_to_string(cmd_table))
+    output_parts.append(_render_to_string(native_table))
+    
+    return "\n".join(output_parts)
 
 
 # ============================================================================
