@@ -279,7 +279,8 @@ class ModernAIAgent:
         self._write_log(f"{result}\n")
         
         if self.verbose:
-            self.console.print(Panel(result, title="[green]🚀 Sessão Git Iniciada[/green]", border_style="green"))
+            # Usa print nativo pois result já contém códigos ANSI do Rich
+            print(result)
         
         # Atualiza estado
         self.git_session_branch = _get_current_branch(self.workspace)
@@ -294,19 +295,23 @@ class ModernAIAgent:
         Deve ser chamado ao final da sessão de trabalho.
         
         Returns:
-            Resultado do review
+            Resultado do review (versão sem cores para log)
         """
         if not _is_git_repo(self.workspace):
             return "ℹ️ Workspace não é repositório Git."
         
         result = git_session_end(self.workspace)
         
+        # Log recebe versão sem cores (já é limpo pelo _write_log)
         self._write_log(f"\n🏁 GIT REVIEW:\n{result}\n")
         
         if self.verbose:
-            self.console.print(result)
+            # Console recebe versão com cores via print nativo
+            # (não usar console.print pois a string já tem códigos ANSI)
+            print(result)
         
-        return result
+        # Retorna versão limpa para armazenamento
+        return _strip_ansi(result)
 
     def _register_tools(self):
         """Registra as ferramentas a partir do pacote de ferramentas."""
