@@ -26,11 +26,13 @@ from rich.prompt import Prompt, Confirm
 from rich import box
 from rich.syntax import Syntax
 
+import re
+
 from .code_agent import CodeAgent
 from .config import AgentConfig
 from .model_config import ModelConfig, ModelProviderConfig
 from . import tools
-from .tools.git_tools import git_session_start, git_session_end, _is_git_repo, _get_current_branch
+from .tools.git_tools import git_session_start, git_session_end, _is_git_repo, _get_current_branch, _strip_ansi
 
 class ModernAIAgent:
     """
@@ -369,11 +371,19 @@ class ModernAIAgent:
             except:
                 pass
     
-    def _write_log(self, message: str):
-        """Escreve mensagem no arquivo de log."""
+    def _write_log(self, message: str, strip_colors: bool = True):
+        """
+        Escreve mensagem no arquivo de log.
+        
+        Args:
+            message: Mensagem a ser escrita
+            strip_colors: Se True, remove códigos ANSI de cores (padrão: True)
+        """
         if self.log_handle:
             try:
-                self.log_handle.write(message)
+                # Remove códigos ANSI para manter log limpo
+                clean_message = _strip_ansi(message) if strip_colors else message
+                self.log_handle.write(clean_message)
                 self.log_handle.flush()
             except Exception as e:
                 if self.verbose:

@@ -6,10 +6,11 @@ Uses Rich library for beautiful terminal output.
 """
 import subprocess
 import os
+import re
 from io import StringIO
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from .tool_decorator import tool
 
 from rich.console import Console
@@ -19,12 +20,40 @@ from rich.text import Text
 from rich import box
 
 
-def _render_to_string(renderable) -> str:
-    """Renderiza um objeto Rich para string, capturando a saída."""
+def _strip_ansi(text: str) -> str:
+    """Remove códigos ANSI de escape (cores) de uma string."""
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
+
+
+def _render_to_string(renderable, strip_colors: bool = False) -> str:
+    """
+    Renderiza um objeto Rich para string, capturando a saída.
+    
+    Args:
+        renderable: Objeto Rich a renderizar (Table, Panel, etc.)
+        strip_colors: Se True, remove códigos ANSI de cores
+        
+    Returns:
+        String renderizada (com ou sem cores)
+    """
     string_io = StringIO()
     console = Console(file=string_io, force_terminal=True, width=80)
     console.print(renderable)
-    return string_io.getvalue()
+    result = string_io.getvalue()
+    
+    if strip_colors:
+        result = _strip_ansi(result)
+    
+    return result
+
+
+def _render_plain(renderable) -> str:
+    """
+    Renderiza objeto Rich para string SEM cores (para logs).
+    Atalho para _render_to_string(renderable, strip_colors=True)
+    """
+    return _render_to_string(renderable, strip_colors=True)
 
 # ============================================================================
 # UTILITY FUNCTIONS (Not exposed as tools)
