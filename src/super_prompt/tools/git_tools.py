@@ -986,6 +986,289 @@ def git_review(workspace: Path, session_commits: int = 5) -> str:
 
 
 # ============================================================================
+# SESSION MANAGEMENT (Branch-based workflow)
+# ============================================================================
+
+@tool(
+    description="""🚀 INICIA UMA SESSÃO DE TRABALHO criando um branch isolado.
+
+Esta ferramenta DEVE ser chamada no INÍCIO de cada sessão de trabalho.
+Cria um branch com nome automático baseado na data/hora ou descrição fornecida.
+
+Benefícios:
+- Master/main fica protegido
+- Todos os commits da sessão ficam isolados
+- Fácil reverter ou descartar toda a sessão
+- No final, pode fazer merge ou squash""",
+    parameters={
+        "description": {
+            "type": "string",
+            "description": "Descrição curta da tarefa (ex: 'criar-api-fastapi', 'refatorar-auth'). Será usada no nome do branch."
+        },
+        "base_branch": {
+            "type": "string",
+            "description": "Branch base para criar o novo branch (padrão: branch atual)",
+            "default": ""
+        }
+    },
+    required=["description"],
+    complexity="simple"
+)
+def git_session_start(description: str, workspace: Path, base_branch: str = "") -> str:
+    """Inicia uma sessão de trabalho criando um branch isolado."""
+    
+    # Inicializa Git se necessário
+    if not _is_git_repo(workspace):
+        _run_git("init", workspace)
+        _run_git("add -A", workspace)
+        _run_git('commit -m "🎉 Commit inicial"', workspace)
+    
+    # Verifica se há mudanças não commitadas
+    if _has_changes(workspace):
+        return (
+            "⚠️ Existem mudanças não commitadas!\n\n"
+            "Antes de iniciar uma nova sessão, você precisa:\n"
+            "  1. git_checkpoint('mensagem') - Salvar mudanças\n"
+            "  2. git_stash_save('nome') - Guardar temporariamente\n"
+            "  3. git_rollback('HEAD', hard=True) - Descartar mudanças"
+        )
+    
+    # Gera nome do branch
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M")
+    # Sanitiza descrição para nome de branch
+    safe_desc = description.lower().replace(" ", "-").replace("_", "-")
+    safe_desc = "".join(c for c in safe_desc if c.isalnum() or c == "-")[:30]
+    branch_name = f"session/{timestamp}-{safe_desc}"
+    
+    # Guarda branch atual
+    current_branch = _get_current_branch(workspace)
+    
+    # Se especificou base_branch, vai para ela primeiro
+    if base_branch and base_branch != current_branch:
+        success, _, stderr = _run_git(f"checkout {base_branch}", workspace)
+        if not success:
+            return f"❌ Erro ao mudar para branch base '{base_branch}': {stderr}"
+    
+    # Cria e muda para o novo branch
+    success, _, stderr = _run_git(f"checkout -b {branch_name}", workspace)
+    if not success:
+        return f"❌ Erro ao criar branch: {stderr}"
+    
+    # Painel de sucesso usando Rich
+    info_table = Table(show_header=False, box=box.SIMPLE)
+    info_table.add_column("Item", style="bold")
+    info_table.add_column("Valor")
+    info_table.add_row("🌿 Branch criado", f"[green]{branch_name}[/green]")
+    info_table.add_row("📍 Branch base", f"[cyan]{base_branch or current_branch}[/cyan]")
+    info_table.add_row("📝 Descrição", description)
+    info_table.add_row("⏰ Iniciado em", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    
+    panel = Panel(
+        info_table,
+        title="🚀 Sessão de Trabalho Iniciada",
+        border_style="green",
+        box=box.ROUNDED
+    )
+    
+    output = _render_to_string(panel)
+    output += "\n💡 Dicas:\n"
+    output += "  • Seus commits ficarão isolados neste branch\n"
+    output += "  • Use checkpoint= nas ferramentas para salvar progresso\n"
+    output += f"  • No final, use git_session_end() para revisar e decidir\n"
+    output += f"  • Para voltar ao master: git_branch_switch('{base_branch or current_branch}')\n"
+    
+    return output
+
+
+@tool(
+    description="""🏁 FINALIZA A SESSÃO DE TRABALHO com review completo e opções de merge.
+
+Esta ferramenta DEVE ser chamada no FINAL de cada sessão de trabalho.
+Mostra:
+- Resumo de todos os commits da sessão
+- Arquivos modificados
+- Opções de merge (squash, merge, ou descartar)
+- Comandos prontos para executar""",
+    parameters={
+        "target_branch": {
+            "type": "string",
+            "description": "Branch para fazer merge (padrão: master ou main)",
+            "default": "master"
+        }
+    },
+    required=[],
+    complexity="simple"
+)
+def git_session_end(workspace: Path, target_branch: str = "master") -> str:
+    """Finaliza sessão de trabalho com review e opções de merge."""
+    
+    if not _is_git_repo(workspace):
+        return "❌ Workspace não é um repositório Git."
+    
+    current_branch = _get_current_branch(workspace)
+    
+    # Verifica se está em um branch de sessão
+    is_session_branch = current_branch.startswith("session/")
+    
+    # Verifica mudanças não commitadas
+    has_uncommitted = _has_changes(workspace)
+    
+    # Conta commits à frente do target
+    success, ahead_count, _ = _run_git(
+        f"rev-list --count {target_branch}..{current_branch}", 
+        workspace, 
+        check=False
+    )
+    commits_ahead = int(ahead_count) if success and ahead_count.isdigit() else 0
+    
+    # Lista commits da sessão
+    _, commits_log, _ = _run_git(
+        f"log {target_branch}..{current_branch} --oneline",
+        workspace,
+        check=False
+    )
+    commits_list = commits_log.splitlines() if commits_log else []
+    
+    # Lista arquivos modificados
+    _, files_changed, _ = _run_git(
+        f"diff --name-only {target_branch}..{current_branch}",
+        workspace,
+        check=False
+    )
+    files_list = files_changed.splitlines() if files_changed else []
+    
+    # =========================================================================
+    # TABELA: Resumo da Sessão
+    # =========================================================================
+    summary_table = Table(
+        title="🏁 Resumo da Sessão de Trabalho",
+        box=box.ROUNDED,
+        show_header=False,
+        border_style="cyan"
+    )
+    summary_table.add_column("Item", style="bold")
+    summary_table.add_column("Valor")
+    
+    summary_table.add_row("🌿 Branch atual", f"[green]{current_branch}[/green]")
+    summary_table.add_row("🎯 Branch destino", f"[cyan]{target_branch}[/cyan]")
+    summary_table.add_row("📊 Commits na sessão", f"[yellow]{commits_ahead}[/yellow]")
+    summary_table.add_row("📁 Arquivos alterados", f"[yellow]{len(files_list)}[/yellow]")
+    
+    if has_uncommitted:
+        summary_table.add_row("⚠️ Mudanças pendentes", "[red]SIM - commit necessário![/red]")
+    else:
+        summary_table.add_row("✅ Working directory", "[green]Limpo[/green]")
+    
+    # =========================================================================
+    # TABELA: Commits da Sessão
+    # =========================================================================
+    commits_table = Table(
+        title="🔖 Commits da Sessão",
+        box=box.SIMPLE,
+        show_header=True,
+        header_style="bold blue"
+    )
+    commits_table.add_column("Hash", style="cyan", width=8)
+    commits_table.add_column("Mensagem")
+    
+    if commits_list:
+        for line in commits_list[:15]:
+            parts = line.split(" ", 1)
+            hash_val = parts[0]
+            msg = parts[1] if len(parts) > 1 else ""
+            icon = "🔖" if "[CHECKPOINT]" in msg else "📝"
+            msg_display = msg[:55] + "..." if len(msg) > 55 else msg
+            commits_table.add_row(hash_val, f"{icon} {msg_display}")
+        if len(commits_list) > 15:
+            commits_table.add_row("...", f"[dim]e mais {len(commits_list) - 15} commits[/dim]")
+    else:
+        commits_table.add_row("-", "[dim]Nenhum commit na sessão[/dim]")
+    
+    # =========================================================================
+    # TABELA: Arquivos Alterados
+    # =========================================================================
+    files_table = Table(
+        title="📁 Arquivos Alterados",
+        box=box.SIMPLE,
+        show_header=False
+    )
+    files_table.add_column("Arquivo")
+    
+    if files_list:
+        for f in files_list[:10]:
+            files_table.add_row(f"  📄 {f}")
+        if len(files_list) > 10:
+            files_table.add_row(f"  [dim]... e mais {len(files_list) - 10} arquivos[/dim]")
+    else:
+        files_table.add_row("  [dim]Nenhum arquivo alterado[/dim]")
+    
+    # =========================================================================
+    # TABELA: Opções de Finalização
+    # =========================================================================
+    options_table = Table(
+        title="🔧 Opções de Finalização",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold green",
+        border_style="green"
+    )
+    options_table.add_column("Opção", style="bold", width=20)
+    options_table.add_column("Comando / Ação")
+    options_table.add_column("Resultado")
+    
+    if has_uncommitted:
+        options_table.add_row(
+            "📦 Salvar pendentes",
+            '[cyan]git_checkpoint("msg")[/cyan]',
+            "Commit das mudanças"
+        )
+    
+    options_table.add_row(
+        "🔀 Merge direto",
+        f'[yellow]git checkout {target_branch} && git merge {current_branch}[/yellow]',
+        "Mantém todos os commits"
+    )
+    
+    options_table.add_row(
+        "📦 Squash (1 commit)",
+        f'[yellow]git checkout {target_branch} && git merge --squash {current_branch}[/yellow]',
+        "Junta tudo em 1 commit"
+    )
+    
+    options_table.add_row(
+        "🗑️ Descartar sessão",
+        f'[red]git checkout {target_branch} && git branch -D {current_branch}[/red]',
+        "Remove branch e mudanças"
+    )
+    
+    options_table.add_row(
+        "💾 Manter para depois",
+        '[dim]Não fazer nada[/dim]',
+        "Branch continua disponível"
+    )
+    
+    # =========================================================================
+    # RENDERIZA TUDO
+    # =========================================================================
+    output_parts = []
+    output_parts.append(_render_to_string(summary_table))
+    output_parts.append(_render_to_string(commits_table))
+    output_parts.append(_render_to_string(files_table))
+    output_parts.append(_render_to_string(options_table))
+    
+    # Comandos prontos para copiar
+    output_parts.append("\n📋 Comandos Git prontos para copiar:\n")
+    output_parts.append(f"# Merge direto (mantém histórico):\n")
+    output_parts.append(f"git checkout {target_branch} && git merge {current_branch}\n\n")
+    output_parts.append(f"# Squash (1 commit limpo):\n")
+    output_parts.append(f"git checkout {target_branch} && git merge --squash {current_branch} && git commit -m \"feat: descrição\"\n\n")
+    output_parts.append(f"# Descartar sessão:\n")
+    output_parts.append(f"git checkout {target_branch} && git branch -D {current_branch}\n")
+    
+    return "\n".join(output_parts)
+
+
+# ============================================================================
 # HELPER FUNCTION FOR CHECKPOINT PARAMETER
 # ============================================================================
 

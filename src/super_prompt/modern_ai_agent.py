@@ -30,6 +30,7 @@ from .code_agent import CodeAgent
 from .config import AgentConfig
 from .model_config import ModelConfig, ModelProviderConfig
 from . import tools
+from .tools.git_tools import git_session_start, git_session_end, _is_git_repo, _get_current_branch
 
 class ModernAIAgent:
     """
@@ -65,6 +66,10 @@ class ModernAIAgent:
         self.conversation_history: List[List[Dict[str, Any]]] = []
         self.task_summaries: List[Dict[str, Any]] = []
         self.task_counter: int = 0
+        
+        # Estado da sessão Git
+        self.git_session_branch: Optional[str] = None
+        self.git_session_started: bool = False
         
         if self.verbose:
             self._display_initialization_message()
@@ -222,6 +227,84 @@ class ModernAIAgent:
                 self.console.print(f"[dim]✓ Modelo configurado: {self.config.model}[/dim]")
             else:
                 self.console.print(f"[dim]✓ Modelos configurados: Simple={self.config.simple_model}, Complex={self.config.complex_model}[/dim]")
+
+    # =========================================================================
+    # GESTÃO DE SESSÃO GIT
+    # =========================================================================
+    
+    def _ensure_git_session(self, task_description: str) -> Optional[str]:
+        """
+        Garante que uma sessão Git está ativa com branch isolado.
+        
+        Esta função é chamada automaticamente no início da primeira tarefa.
+        Cria um branch de sessão para isolar todas as mudanças.
+        
+        Args:
+            task_description: Descrição da tarefa (usada para nomear o branch)
+            
+        Returns:
+            Resultado da criação do branch ou None se já existe
+        """
+        if self.git_session_started:
+            return None  # Sessão já iniciada
+        
+        # Verifica se é um repositório Git
+        if not _is_git_repo(self.workspace):
+            self._write_log("ℹ️ Workspace não é repositório Git. Sessão Git não será criada.\n")
+            if self.verbose:
+                self.console.print("[dim]ℹ️ Workspace não é repositório Git. Pulando criação de branch de sessão.[/dim]")
+            self.git_session_started = True  # Marca como "tratado"
+            return None
+        
+        # Verifica se já está em um branch de sessão
+        current_branch = _get_current_branch(self.workspace)
+        if current_branch.startswith("session/"):
+            self._write_log(f"ℹ️ Já está em branch de sessão: {current_branch}\n")
+            self.git_session_branch = current_branch
+            self.git_session_started = True
+            return None
+        
+        # Cria branch de sessão
+        # Extrai descrição curta da tarefa (primeiras palavras)
+        words = task_description.split()[:4]
+        short_desc = "-".join(words).lower()
+        short_desc = "".join(c for c in short_desc if c.isalnum() or c == "-")[:30]
+        
+        self._write_log(f"\n🚀 Criando branch de sessão para: {short_desc}\n")
+        
+        result = git_session_start(short_desc, self.workspace)
+        
+        self._write_log(f"{result}\n")
+        
+        if self.verbose:
+            self.console.print(Panel(result, title="[green]🚀 Sessão Git Iniciada[/green]", border_style="green"))
+        
+        # Atualiza estado
+        self.git_session_branch = _get_current_branch(self.workspace)
+        self.git_session_started = True
+        
+        return result
+    
+    def show_git_review(self) -> str:
+        """
+        Mostra o review da sessão Git com opções de merge.
+        
+        Deve ser chamado ao final da sessão de trabalho.
+        
+        Returns:
+            Resultado do review
+        """
+        if not _is_git_repo(self.workspace):
+            return "ℹ️ Workspace não é repositório Git."
+        
+        result = git_session_end(self.workspace)
+        
+        self._write_log(f"\n🏁 GIT REVIEW:\n{result}\n")
+        
+        if self.verbose:
+            self.console.print(result)
+        
+        return result
 
     def _register_tools(self):
         """Registra as ferramentas a partir do pacote de ferramentas."""
@@ -671,6 +754,12 @@ Responda com:
             if self.use_multi_model:
                 panel_content += f"\n[dim]Modo: Híbrido (planejamento → execução → validação)[/dim]"
             self.console.print(Panel(panel_content, border_style="cyan"))
+        
+        # =====================================================================
+        # SESSÃO GIT: Cria branch isolado para esta sessão (se primeira tarefa)
+        # =====================================================================
+        if not self.git_session_started:
+            self._ensure_git_session(task)
 
         history_context = self._build_context_from_history()
         
@@ -1006,6 +1095,16 @@ Qual ação você vai tomar agora?
                     f"[green]{status_icon} Tarefa concluída![/green]\n\n{execution_result['response'][:500]}...",
                     border_style="green"
                 ))
+            
+            # =========================================================
+            # GIT REVIEW: Mostra resumo da sessão Git (OBRIGATÓRIO)
+            # =========================================================
+            if self.git_session_started and _is_git_repo(self.workspace):
+                self._write_log(f"\n{'='*80}\n🏁 GIT REVIEW (Revisão Final da Sessão)\n{'='*80}\n")
+                if self.verbose:
+                    self.console.print("\n[bold cyan]🏁 GIT REVIEW - Revisão Final da Sessão[/bold cyan]")
+                git_review_result = self.show_git_review()
+                final_result["git_review"] = git_review_result
             
             return final_result
         else:
