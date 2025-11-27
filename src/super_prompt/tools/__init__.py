@@ -6,6 +6,7 @@ function to get a dictionary of ready-to-use tools with their dependencies (like
 already bound.
 """
 import functools
+import inspect
 from pathlib import Path
 from typing import Dict, Callable, Any
 
@@ -17,6 +18,7 @@ from .file_system import *
 from .code_editing import *
 from .shell import *
 from .code_analysis import *
+from .cognitive import *  # Meta-ferramentas cognitivas (complex)
 
 # Import the global registries from the decorator module
 from .tool_decorator import TOOL_REGISTRY, TOOL_SCHEMAS, TOOL_COMPLEXITY
@@ -26,7 +28,8 @@ def get_all_tools(code_agent: CodeAgent, workspace: Path) -> Dict[str, Callable[
     Initializes and returns a dictionary of all registered tools.
 
     This function binds the necessary context (code_agent, workspace) to each
-    tool function that requires it.
+    tool function that requires it. It intelligently checks which parameters
+    each function accepts before binding.
 
     Args:
         code_agent: An instance of the CodeAgent for file manipulation.
@@ -40,8 +43,22 @@ def get_all_tools(code_agent: CodeAgent, workspace: Path) -> Dict[str, Callable[
     bound_tools: Dict[str, Callable[..., Any]] = {}
 
     for name, func in TOOL_REGISTRY.items():
-        # Create a partial function, binding the code_agent and workspace arguments
-        # This makes the tools directly callable by the agent with only their specific args
-        bound_tools[name] = functools.partial(func, code_agent=code_agent, workspace=workspace)
+        # Get the function signature to see which parameters it accepts
+        sig = inspect.signature(func)
+        params = sig.parameters
+        
+        # Build kwargs based on what the function actually accepts
+        kwargs = {}
+        if 'code_agent' in params:
+            kwargs['code_agent'] = code_agent
+        if 'workspace' in params:
+            kwargs['workspace'] = workspace
+        
+        # Create a partial function with only the parameters the function accepts
+        if kwargs:
+            bound_tools[name] = functools.partial(func, **kwargs)
+        else:
+            # If the function doesn't need any of our context, use it as-is
+            bound_tools[name] = func
         
     return bound_tools
