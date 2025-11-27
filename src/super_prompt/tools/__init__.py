@@ -19,6 +19,7 @@ from .code_editing import *
 from .shell import *
 from .code_analysis import *
 from .cognitive import *  # Meta-ferramentas cognitivas (complex)
+from .git_tools import *  # Ferramentas de controle de versão Git
 
 # Import the global registries from the decorator module
 from .tool_decorator import TOOL_REGISTRY, TOOL_SCHEMAS, TOOL_COMPLEXITY

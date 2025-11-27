@@ -1,10 +1,13 @@
 """
 File system tools for the Modern AI Agent.
+
+Supports optional Git checkpoints for safe versioning.
 """
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Union
 from .tool_decorator import tool
 from ..code_agent import CodeAgent
+from .git_tools import create_checkpoint_if_requested
 
 @tool(
     description="Lê o conteúdo completo de um arquivo do workspace",
@@ -21,15 +24,19 @@ def read_file(filepath: str, code_agent: CodeAgent, workspace: Path) -> str:
         return f"✗ Erro ao ler {filepath}: {e}"
 
 @tool(
-    description="Cria um novo arquivo ou adapta um arquivo existente. Se o arquivo já existe, tenta adaptar ao invés de sobrescrever.",
+    description="""Cria um novo arquivo ou adapta um arquivo existente. Se o arquivo já existe, tenta adaptar ao invés de sobrescrever.
+
+🔖 CHECKPOINT: Use checkpoint="mensagem" para criar um ponto de restauração Git após a operação.
+   Exemplo: write_file("app.py", content, checkpoint="criado arquivo principal")""",
     parameters={
         "filepath": {"type": "string", "description": "Caminho do arquivo a criar"},
-        "content": {"type": "string", "description": "Conteúdo completo a escrever"}
+        "content": {"type": "string", "description": "Conteúdo completo a escrever"},
+        "checkpoint": {"type": "string", "description": "Se fornecido, cria um checkpoint Git após a operação (ex: 'criado app.py')"}
     },
     required=["filepath", "content"],
     complexity="simple"
 )
-def write_file(filepath: str, content: str, code_agent: CodeAgent, workspace: Path) -> str:
+def write_file(filepath: str, content: str, code_agent: CodeAgent, workspace: Path, checkpoint: Optional[str] = None) -> str:
     """Escreve um arquivo com adaptação inteligente se já existir."""
     try:
         file_path = workspace / filepath
@@ -37,7 +44,14 @@ def write_file(filepath: str, content: str, code_agent: CodeAgent, workspace: Pa
         # Se arquivo não existe, cria normalmente
         if not file_path.exists():
             code_agent.write_file(filepath, content, show_preview=False)
-            return f"✓ Arquivo {filepath} CRIADO com sucesso."
+            result = f"✓ Arquivo {filepath} CRIADO com sucesso."
+            
+            # Cria checkpoint se solicitado
+            checkpoint_msg = create_checkpoint_if_requested(workspace, checkpoint, "write_file", filepath)
+            if checkpoint_msg:
+                result += f"\n{checkpoint_msg}"
+            
+            return result
         
         # Arquivo existe - tenta adaptar
         try:
@@ -150,16 +164,19 @@ A ferramenta:
 3. Substitui pelo novo conteúdo
 4. Retorna comparação do antes/depois
 
+🔖 CHECKPOINT: Use checkpoint="mensagem" para criar um ponto de restauração Git após a operação.
+
 DIFERENTE de write_file (que só cria novos) e force_write_file (que não mostra comparação).""",
     parameters={
         "filepath": {"type": "string", "description": "Caminho do arquivo EXISTENTE a atualizar"},
         "new_content": {"type": "string", "description": "Novo conteúdo completo para o arquivo"},
-        "reason": {"type": "string", "description": "Motivo da atualização (para log/audit)"}
+        "reason": {"type": "string", "description": "Motivo da atualização (para log/audit)"},
+        "checkpoint": {"type": "string", "description": "Se fornecido, cria um checkpoint Git após a operação"}
     },
     required=["filepath", "new_content", "reason"],
     complexity="simple"
 )
-def update_file(filepath: str, new_content: str, reason: str, code_agent: CodeAgent, workspace: Path) -> str:
+def update_file(filepath: str, new_content: str, reason: str, code_agent: CodeAgent, workspace: Path, checkpoint: Optional[str] = None) -> str:
     """Atualiza um arquivo existente de forma inteligente."""
     try:
         file_path = workspace / filepath
@@ -185,7 +202,7 @@ def update_file(filepath: str, new_content: str, reason: str, code_agent: CodeAg
         code_agent.write_file(filepath, new_content, show_preview=False)
         
         # Gera resumo das mudanças
-        return (
+        result = (
             f"✅ Arquivo '{filepath}' ATUALIZADO com sucesso!\n\n"
             f"📊 Resumo:\n"
             f"  - Linhas anteriores: {len(existing_lines)}\n"
@@ -199,6 +216,13 @@ def update_file(filepath: str, new_content: str, reason: str, code_agent: CodeAg
             f"{''.join(l + chr(10) for l in new_lines[:5])}"
             f"{'...' if len(new_lines) > 5 else ''}"
         )
+        
+        # Cria checkpoint se solicitado
+        checkpoint_msg = create_checkpoint_if_requested(workspace, checkpoint, "update_file", filepath)
+        if checkpoint_msg:
+            result += f"\n\n{checkpoint_msg}"
+        
+        return result
         
     except Exception as e:
         return f"✗ Erro ao atualizar {filepath}: {e}"
@@ -218,16 +242,19 @@ A ferramenta:
 3. Adiciona APENAS as linhas que faltam
 4. Mantém o conteúdo existente intacto
 
+🔖 CHECKPOINT: Use checkpoint="mensagem" para criar um ponto de restauração Git após a operação.
+
 Exemplo: ensure_lines("requirements.txt", "fastapi\\nuvicorn", "adicionar deps FastAPI")""",
     parameters={
         "filepath": {"type": "string", "description": "Caminho do arquivo"},
         "lines_to_ensure": {"type": "string", "description": "Linhas que devem existir (separadas por \\n)"},
-        "reason": {"type": "string", "description": "Motivo da adição"}
+        "reason": {"type": "string", "description": "Motivo da adição"},
+        "checkpoint": {"type": "string", "description": "Se fornecido, cria um checkpoint Git após a operação"}
     },
     required=["filepath", "lines_to_ensure", "reason"],
     complexity="simple"
 )
-def ensure_lines(filepath: str, lines_to_ensure: str, reason: str, code_agent: CodeAgent, workspace: Path) -> str:
+def ensure_lines(filepath: str, lines_to_ensure: str, reason: str, code_agent: CodeAgent, workspace: Path, checkpoint: Optional[str] = None) -> str:
     """Garante que certas linhas existam em um arquivo."""
     try:
         file_path = workspace / filepath
@@ -260,7 +287,7 @@ def ensure_lines(filepath: str, lines_to_ensure: str, reason: str, code_agent: C
             for line in lines_to_add:
                 f.write(line + '\n')
         
-        return (
+        result = (
             f"✅ Linhas adicionadas a '{filepath}'!\n\n"
             f"➕ Linhas ADICIONADAS:\n"
             + "\n".join(f"  + {line}" for line in lines_to_add) +
@@ -270,21 +297,31 @@ def ensure_lines(filepath: str, lines_to_ensure: str, reason: str, code_agent: C
             f"💾 Backup: criado automaticamente"
         )
         
+        # Cria checkpoint se solicitado
+        checkpoint_msg = create_checkpoint_if_requested(workspace, checkpoint, "ensure_lines", filepath)
+        if checkpoint_msg:
+            result += f"\n{checkpoint_msg}"
+        
+        return result
+        
     except Exception as e:
         return f"✗ Erro ao processar {filepath}: {e}"
 
 
 @tool(
-    description="⚠️ Sobrescreve um arquivo EXISTENTE forçadamente. Use APENAS como ÚLTIMO RECURSO. Cria backup automático.",
+    description="""⚠️ Sobrescreve um arquivo EXISTENTE forçadamente. Use APENAS como ÚLTIMO RECURSO. Cria backup automático.
+
+🔖 CHECKPOINT: Use checkpoint="mensagem" para criar um ponto de restauração Git após a operação.""",
     parameters={
         "filepath": {"type": "string", "description": "Caminho do arquivo a sobrescrever"},
         "content": {"type": "string", "description": "Novo conteúdo completo"},
-        "reason": {"type": "string", "description": "Motivo da sobrescrita (obrigatório para audit)"}
+        "reason": {"type": "string", "description": "Motivo da sobrescrita (obrigatório para audit)"},
+        "checkpoint": {"type": "string", "description": "Se fornecido, cria um checkpoint Git após a operação"}
     },
     required=["filepath", "content", "reason"],
     complexity="simple"
 )
-def force_write_file(filepath: str, content: str, reason: str, code_agent: CodeAgent, workspace: Path) -> str:
+def force_write_file(filepath: str, content: str, reason: str, code_agent: CodeAgent, workspace: Path, checkpoint: Optional[str] = None) -> str:
     """Sobrescreve arquivo forçadamente."""
     try:
         file_path = workspace / filepath
@@ -292,7 +329,14 @@ def force_write_file(filepath: str, content: str, reason: str, code_agent: CodeA
             return f"⚠️ Arquivo '{filepath}' NÃO EXISTE. Use 'write_file' para criar."
         code_agent.create_backup(filepath)
         code_agent.write_file(filepath, content, show_preview=False)
-        return f"✓ Arquivo {filepath} SOBRESCRITO com sucesso. Motivo: {reason}"
+        result = f"✓ Arquivo {filepath} SOBRESCRITO com sucesso. Motivo: {reason}"
+        
+        # Cria checkpoint se solicitado
+        checkpoint_msg = create_checkpoint_if_requested(workspace, checkpoint, "force_write_file", filepath)
+        if checkpoint_msg:
+            result += f"\n{checkpoint_msg}"
+        
+        return result
     except Exception as e:
         return f"✗ Erro ao sobrescrever {filepath}: {e}"
 
