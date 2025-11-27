@@ -999,7 +999,15 @@ Use estas ferramentas proativamente para garantir qualidade!"""
                 self._write_log(f"     ✓ Resultado: {tool_result}\n")
                 
                 if self.verbose:
-                    self.console.print(f"[dim]→ Resultado: {tool_result[:200]}...[/dim]")
+                    # Usa print nativo se resultado contém códigos ANSI (de ferramentas Rich)
+                    # Trunca para exibição
+                    result_preview = tool_result[:200] + "..." if len(tool_result) > 200 else tool_result
+                    if '\x1b[' in tool_result or '╭' in tool_result or '╰' in tool_result:
+                        # Resultado tem formatação Rich/ANSI - usa print nativo
+                        print(f"→ Resultado:\n{result_preview}")
+                    else:
+                        # Resultado simples - usa console.print com estilo
+                        self.console.print(f"[dim]→ Resultado: {result_preview}[/dim]")
                 
                 messages.append({"role": "tool", "content": tool_result, "tool_call_id": tool_call_id})
                 
