@@ -1,0 +1,119 @@
+version: '3.8'
+
+# Carrega variáveis do .env da raiz do projeto
+x-env-file: &env-file
+  env_file:
+    - ../.env
+
+services:
+  # PostgreSQL - Banco de dados principal
+  postgres:
+    image: postgres:15-alpine
+    container_name: prompt_optimizer_postgres
+    environment:
+      POSTGRES_USER: prompt_optimizer
+      POSTGRES_PASSWORD: prompt_optimizer_secret
+      POSTGRES_DB: prompt_optimizer
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prompt_optimizer"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - prompt_optimizer_network
+
+  # Redis - Cache para prompts otimizados
+  redis:
+    image: redis:7-alpine
+    container_name: prompt_optimizer_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - prompt_optimizer_network
+
+  # Weaviate - Busca vetorial para similaridade
+  # Configurado para usar LM Studio como provedor de embeddings via API OpenAI-compatible
+  weaviate:
+    <<: *env-file
+    image: semitechnologies/weaviate:1.24.1
+    container_name: prompt_optimizer_weaviate
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      # Usa text2vec-openai que é compatível com LM Studio
+      DEFAULT_VECTORIZER_MODULE: 'text2vec-openai'
+      ENABLE_MODULES: 'text2vec-openai,generative-openai'
+      CLUSTER_HOSTNAME: 'node1'
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/v1/.well-known/ready || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - prompt_optimizer_network
+    # NOTA: LM Studio deve estar rodando externamente com modelo de embeddings carregado
+    # Modelos recomendados: nomic-ai/nomic-embed-text-v1.5, BAAI/bge-small-en-v1.5
+
+  # API FastAPI
+  api:
+    <<: *env-file
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: prompt_optimizer_api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://prompt_optimizer:prompt_optimizer_secret@postgres:5432/prompt_optimizer
+      REDIS_URL: redis://redis:6379/0
+      WEAVIATE_URL: http://weaviate:8080
+      # LM Studio - Embeddings locais
+      # Ajuste o host para o IP da sua máquina se rodando em Docker
+      LMSTUDIO_BASE_URL: ${LMSTUDIO_BASE_URL:-http://spark-0852.local:1234/v1}
+      LMSTUDIO_EMBEDDING_MODEL: ${LMSTUDIO_EMBEDDING_MODEL:-nomic-embed-text-v1.5}
+      USE_LOCAL_EMBEDDINGS: ${USE_LOCAL_EMBEDDINGS:-true}
+      # OpenAI (fallback)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      weaviate:
+        condition: service_healthy
+    volumes:
+      - ../src:/app/src
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - prompt_optimizer_network
+
+volumes:
+  postgres_data:
+  redis_data:
+  weaviate_data:
+
+networks:
+  prompt_optimizer_network:
+    driver: bridge
+

@@ -1,0 +1,2 @@
+"""API - Endpoints REST FastAPI."""
+

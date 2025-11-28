@@ -1,0 +1,34 @@
+# Prompt Optimizer - Dependências adicionais
+
+# FastAPI e servidor
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# Banco de dados PostgreSQL
+sqlalchemy[asyncio]>=2.0.25
+asyncpg>=0.29.0
+alembic>=1.13.1
+
+# Redis para cache
+redis>=5.0.1
+aioredis>=2.0.1
+
+# Weaviate para busca vetorial
+weaviate-client>=4.4.1
+
+# Validação e serialização
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# OpenAI para embeddings (alternativa ao Weaviate built-in)
+openai>=1.10.0
+
+# Utilitários
+python-multipart>=0.0.6
+httpx>=0.26.0
+tenacity>=8.2.3
+
+# Testing
+pytest-asyncio>=0.23.0
+aiosqlite>=0.19.0
+

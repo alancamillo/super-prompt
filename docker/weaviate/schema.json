@@ -1,0 +1,55 @@
+{
+  "classes": [
+    {
+      "class": "PromptRequest",
+      "description": "Armazena requisições de otimização para busca por similaridade",
+      "vectorizer": "text2vec-openai",
+      "moduleConfig": {
+        "text2vec-openai": {
+          "vectorizeClassName": false,
+          "model": "nomic-embed-text-v1.5",
+          "baseURL": "http://host.docker.internal:1234/v1"
+        }
+      },
+      "properties": [
+        {
+          "name": "request_text",
+          "dataType": ["text"],
+          "description": "Texto original da requisição do usuário",
+          "moduleConfig": {
+            "text2vec-openai": {
+              "skip": false,
+              "vectorizePropertyName": false
+            }
+          }
+        },
+        {
+          "name": "optimization_id",
+          "dataType": ["string"],
+          "description": "UUID da optimization_request no PostgreSQL",
+          "moduleConfig": {
+            "text2vec-openai": {
+              "skip": true
+            }
+          }
+        },
+        {
+          "name": "prompt_template_name",
+          "dataType": ["string"],
+          "description": "Nome do template de prompt associado",
+          "moduleConfig": {
+            "text2vec-openai": {
+              "skip": true
+            }
+          }
+        },
+        {
+          "name": "created_at",
+          "dataType": ["date"],
+          "description": "Data de criação do registro"
+        }
+      ]
+    }
+  ]
+}
+
